@@ -1,0 +1,4 @@
+00200193	// addi x3, x0, 2 ( set loop counter x3 = 2 )
+00100093	// addi x1, x0, 1 (Set decrement value x1 = 1)
+401181B3	// sub x3, x3, x1 (loop target: x3 = x3-1)
+FE019CE3	// bne x3, x0, -8 ( Branch: if x3!=0, jump back 2 instructions)
