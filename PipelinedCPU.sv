@@ -3,6 +3,10 @@ module PipelinedCPU(
     input logic rst
 );
 
+output logic WB_RegWrite_dbg,
+output logic [4:0] WB_WriteAddr_dbg,
+output logic [31:0] WB_WriteData_dbg
+    
 // Hazard unit control wires
 logic [1:0] ForwardA, ForwardB;
 logic StallF, StallD, FlushD, FlushE;
@@ -331,4 +335,8 @@ HazardUnit hazard_unit_instance(
     .FlushE(FlushE)
 );
 
+assign WB_RegWrite_dbg  = WB_RegWrite;
+assign WB_WriteAddr_dbg = WB_WriteAddr;
+assign WB_WriteData_dbg = WB_WriteData;
+    
 endmodule
