@@ -2,9 +2,6 @@ module PipelinedCPU(
     input logic clk,
     input logic rst,
 
-    // FIX: these were declared as `output logic` statements *after* the port
-    // list had already been closed with `);` — that doesn't compile. They now
-    // live inside the port list where they belong.
     output logic WB_RegWrite_dbg,
     output logic [4:0] WB_WriteAddr_dbg,
     output logic [31:0] WB_WriteData_dbg
@@ -46,7 +43,7 @@ logic [31:0] EX_SrcB, EX_ALUResult;
 logic EX_Zero, EX_PCSrc;
 
 logic [4:0] EX_Rs1, EX_Rs2;
-logic [31:0] EX_MuxA_Out, EX_MuxB_Out;          // Wires for forwarding multiplexers
+logic [31:0] EX_MuxA_Out, EX_MuxB_Out;          
 
 
 
@@ -65,7 +62,7 @@ logic [1:0] WB_ResultSrc;
 
 // Branch prediction
 logic predicted_taken;
-logic [31:0] predicted_target;      // NEW: BTB-style target for speculative fetch
+logic [31:0] predicted_target;     
 logic EX_predicted_taken;
 logic BP_mispredicted;
 
@@ -82,27 +79,12 @@ BranchPredictor bp_instance(
     .EX_Branch(EX_Branch),
     .EX_actual_taken(EX_PCSrc),
     .EX_PC(EX_PC),
-    .EX_target(PCTarget)          // feeds the BTB so future fetches of this branch can jump straight there
+    .EX_target(PCTarget)         
 );
 
-// Misprediction: EX has now resolved this branch's real outcome and it
-// disagrees with the prediction IF used when it originally fetched it two
-// cycles ago. Drives both the recovery redirect below and the flushes in
-// HazardUnit.
+
 assign BP_mispredicted = EX_Branch && (EX_PCSrc != EX_predicted_taken);
 
-// REAL SPECULATIVE FETCH: IF no longer blindly walks PC+4. It consults the
-// predictor for the instruction it's about to fetch and, if that PC index is
-// predicted taken, jumps straight to the remembered target — no waiting for
-// the branch to reach EX. A misprediction detected in EX takes priority and
-// overrides the speculative path with the actually-correct next PC:
-//   - if the branch was actually taken (and IF had predicted not-taken),
-//     recover to PCTarget (EX_PC + EX_ImmExt)
-//   - if the branch was actually not-taken (and IF had predicted taken),
-//     recover to EX_PC + 4, i.e. the instruction right after the branch
-// This also fixes the earlier bug where a hot loop's BHT counter saturating
-// to "taken" would stop the design from ever redirecting to the branch
-// target at all.
 always_comb
     begin
         if(BP_mispredicted)
@@ -142,10 +124,10 @@ IF_ID_reg if_id_register(
     .flush(FlushD),
     .IF_PC(IF_PCResult),
     .IF_Instruction(IF_Instruction),
-    .IF_predicted_taken(predicted_taken),   // FIX: prediction now enters the pipeline here...
+    .IF_predicted_taken(predicted_taken),   
     .ID_PC(ID_PCResult),
     .ID_Instruction(ID_Instruction),
-    .ID_predicted_taken(ID_predicted_taken) // ...instead of being read live off the IF stage later
+    .ID_predicted_taken(ID_predicted_taken) 
 );
 
 
@@ -203,9 +185,7 @@ ID_EX_reg id_ex_register(
     .EX_Branch(EX_Branch), .EX_MemWrite(EX_MemWrite),
     .EX_RegWrite(EX_RegWrite), .EX_ResultSrc(EX_ResultSrc),
 
-    .ID_predicted_taken(ID_predicted_taken),  // FIX: was fed straight from the live IF-stage
-                                               // signal (predicted_taken), stage-misaligned
-                                               // with the instruction actually moving into EX
+    .ID_predicted_taken(ID_predicted_taken), 
     .EX_predicted_taken(EX_predicted_taken)
 );
 
