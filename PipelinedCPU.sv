@@ -20,6 +20,7 @@ logic [31:0] IF_PCResult, IF_Instruction;
 
 // ID Stage wires
 logic [31:0] ID_PCResult, ID_Instruction;
+logic ID_predicted_taken;           // NEW: prediction, now properly pipelined from IF
 logic ID_RegWrite, ID_ALUSrc, ID_MemWrite, ID_Branch;
 logic [2:0] ID_ImmSrc;
 logic [1:0] ID_ResultSrc;
@@ -64,6 +65,7 @@ logic [1:0] WB_ResultSrc;
 
 // Branch prediction
 logic predicted_taken;
+logic [31:0] predicted_target;      // NEW: BTB-style target for speculative fetch
 logic EX_predicted_taken;
 logic BP_mispredicted;
 
@@ -76,24 +78,46 @@ BranchPredictor bp_instance(
     .rst(rst),
     .IF_PC(IF_PCResult),
     .predicted_taken(predicted_taken),
+    .predicted_target(predicted_target),
     .EX_Branch(EX_Branch),
     .EX_actual_taken(EX_PCSrc),
-    .EX_PC(EX_PC)
+    .EX_PC(EX_PC),
+    .EX_target(PCTarget)          // feeds the BTB so future fetches of this branch can jump straight there
 );
 
-// Kept for visibility/debug (e.g. counting mispredictions in sim) — no longer
-// used to gate the PC redirect, see fix below.
+// Misprediction: EX has now resolved this branch's real outcome and it
+// disagrees with the prediction IF used when it originally fetched it two
+// cycles ago. Drives both the recovery redirect below and the flushes in
+// HazardUnit.
 assign BP_mispredicted = EX_Branch && (EX_PCSrc != EX_predicted_taken);
 
-// FIX: Fetch never actually acts on `predicted_taken` — IF always walks PC+4.
-// That means the *only* time the fetched stream is wrong is when a branch in
-// EX actually resolves taken; that's the only case PC needs to be redirected
-// to PCTarget, full stop. The previous code redirected only when
-// BP_mispredicted was true, which was FALSE whenever the branch was actually
-// taken and the (currently unused) predictor happened to guess taken too —
-// so a hot loop whose BHT counter saturated to "taken" would stop redirecting
-// PC to the branch target and silently fall through instead of looping.
-assign PCNext = (EX_Branch && EX_PCSrc) ? PCTarget : (IF_PCResult + 32'd4);
+// REAL SPECULATIVE FETCH: IF no longer blindly walks PC+4. It consults the
+// predictor for the instruction it's about to fetch and, if that PC index is
+// predicted taken, jumps straight to the remembered target — no waiting for
+// the branch to reach EX. A misprediction detected in EX takes priority and
+// overrides the speculative path with the actually-correct next PC:
+//   - if the branch was actually taken (and IF had predicted not-taken),
+//     recover to PCTarget (EX_PC + EX_ImmExt)
+//   - if the branch was actually not-taken (and IF had predicted taken),
+//     recover to EX_PC + 4, i.e. the instruction right after the branch
+// This also fixes the earlier bug where a hot loop's BHT counter saturating
+// to "taken" would stop the design from ever redirecting to the branch
+// target at all.
+always_comb
+    begin
+        if(BP_mispredicted)
+            begin
+                PCNext = EX_PCSrc ? PCTarget : (EX_PC + 32'd4);
+            end
+        else if(predicted_taken)
+            begin
+                PCNext = predicted_target;
+            end
+        else
+            begin
+                PCNext = IF_PCResult + 32'd4;
+            end
+    end
 
 
 PC pc_instance(
@@ -118,8 +142,10 @@ IF_ID_reg if_id_register(
     .flush(FlushD),
     .IF_PC(IF_PCResult),
     .IF_Instruction(IF_Instruction),
+    .IF_predicted_taken(predicted_taken),   // FIX: prediction now enters the pipeline here...
     .ID_PC(ID_PCResult),
-    .ID_Instruction(ID_Instruction)
+    .ID_Instruction(ID_Instruction),
+    .ID_predicted_taken(ID_predicted_taken) // ...instead of being read live off the IF stage later
 );
 
 
@@ -177,7 +203,9 @@ ID_EX_reg id_ex_register(
     .EX_Branch(EX_Branch), .EX_MemWrite(EX_MemWrite),
     .EX_RegWrite(EX_RegWrite), .EX_ResultSrc(EX_ResultSrc),
 
-    .ID_predicted_taken(predicted_taken),
+    .ID_predicted_taken(ID_predicted_taken),  // FIX: was fed straight from the live IF-stage
+                                               // signal (predicted_taken), stage-misaligned
+                                               // with the instruction actually moving into EX
     .EX_predicted_taken(EX_predicted_taken)
 );
 
@@ -297,7 +325,7 @@ HazardUnit hazard_unit_instance(
     .ID_Rs2(ID_Rs2),
     .EX_WriteAddr(EX_WriteAddr),
     .EX_ResultSrc(EX_ResultSrc),
-    .EX_PCSrc(EX_PCSrc),
+    .BP_mispredicted(BP_mispredicted),
     .ForwardA(ForwardA),
     .ForwardB(ForwardB),
     .StallF(StallF),
