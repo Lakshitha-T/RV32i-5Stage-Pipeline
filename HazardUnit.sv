@@ -1,4 +1,4 @@
-// Looks at the source registers being executed in the ALU ( EX_RS1 and EX_RS2) and checks if they match
+// Looks at the source registers being executed in the ALU (EX_Rs1 and EX_Rs2) and checks if they match
 // the destination register in the (MEM_WriteAddr, WB_WriteAddr) - shifts the MUX
 
 module HazardUnit(
@@ -31,7 +31,7 @@ module HazardUnit(
 
 
 // 1. Forwarding to the ALU input A
-always_comb 
+always_comb
     begin
         if(((EX_Rs1 == MEM_WriteAddr) && MEM_RegWrite) && (EX_Rs1 != 5'b0))
             begin
@@ -57,7 +57,8 @@ always_comb
             end
         else if(((EX_Rs2 == WB_WriteAddr) && WB_RegWrite) && (EX_Rs2 != 5'b0))
             begin
-                ForwardB = 5'b01;
+                ForwardB = 2'b01;       // FIX: was 5'b01 (width mismatch on a [1:0] output;
+                                         // silently truncated to 2'b01, but wrong to write)
             end
         else
             begin
@@ -79,5 +80,3 @@ assign FlushD = EX_PCSrc;
 assign FlushE = lwStall || EX_PCSrc;
 
 endmodule
-
-
