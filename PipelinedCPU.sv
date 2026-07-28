@@ -1,12 +1,15 @@
 module PipelinedCPU(
     input logic clk,
-    input logic rst
+    input logic rst,
+
+    // FIX: these were declared as `output logic` statements *after* the port
+    // list had already been closed with `);` — that doesn't compile. They now
+    // live inside the port list where they belong.
+    output logic WB_RegWrite_dbg,
+    output logic [4:0] WB_WriteAddr_dbg,
+    output logic [31:0] WB_WriteData_dbg
 );
 
-output logic WB_RegWrite_dbg,
-output logic [4:0] WB_WriteAddr_dbg,
-output logic [31:0] WB_WriteData_dbg
-    
 // Hazard unit control wires
 logic [1:0] ForwardA, ForwardB;
 logic StallF, StallD, FlushD, FlushE;
@@ -42,7 +45,7 @@ logic [31:0] EX_SrcB, EX_ALUResult;
 logic EX_Zero, EX_PCSrc;
 
 logic [4:0] EX_Rs1, EX_Rs2;
-logic [31:0] EX_MuxA_Out, EX_MuxB_Out;          // Wires for forwarding multipliers
+logic [31:0] EX_MuxA_Out, EX_MuxB_Out;          // Wires for forwarding multiplexers
 
 
 
@@ -68,31 +71,6 @@ logic BP_mispredicted;
 
 //1. IF (Instruction Fetch Stage)
 
-// logic [2:0] funct3_wire;
-// assign funct3_wire = ID_Instruction[14:12];
-
-// // Branching for beq and bne
-// always_comb 
-//     begin
-//         if(Branch)
-//             begin
-//                 case(funct3_wire)        // Checking funct3
-//                     3'b000: PCSrc = Zero;       // BEQ: Jump if equal (Subtraction)
-//                     3'b001: PCSrc = ~Zero;      // BNE: Jump if not equal (Subtraction)
-//                     default: PCSrc = 1'b0;      // Default case
-//                 endcase
-//             end
-//         else
-//             begin
-//                 PCSrc = 1'b0;                   // Not a branch instruction
-//             end
-//     end
-            
-
-
-// PC Source Mux - controlled by output of EX stage
-//assign PCNext = EX_PCSrc? PCTarget: (IF_PCResult + 32'd4);         - Changed during branch prediction implementation
-
 BranchPredictor bp_instance(
     .clk(clk),
     .rst(rst),
@@ -103,30 +81,26 @@ BranchPredictor bp_instance(
     .EX_PC(EX_PC)
 );
 
-// Finding out if the prediction made in the past was wrong - we are always predicting not taken
+// Kept for visibility/debug (e.g. counting mispredictions in sim) — no longer
+// used to gate the PC redirect, see fix below.
 assign BP_mispredicted = EX_Branch && (EX_PCSrc != EX_predicted_taken);
 
-// Next PC mux logic
-always_comb
-    begin
-        if(BP_mispredicted)
-            begin
-                PCNext = PCTarget;              // Mispredicted
-            end
-        else
-            begin
-                // Default incremental fetch
-                PCNext = IF_PCResult + 32'd4;   // Default path
-            end
-    end
+// FIX: Fetch never actually acts on `predicted_taken` — IF always walks PC+4.
+// That means the *only* time the fetched stream is wrong is when a branch in
+// EX actually resolves taken; that's the only case PC needs to be redirected
+// to PCTarget, full stop. The previous code redirected only when
+// BP_mispredicted was true, which was FALSE whenever the branch was actually
+// taken and the (currently unused) predictor happened to guess taken too —
+// so a hot loop whose BHT counter saturated to "taken" would stop redirecting
+// PC to the branch target and silently fall through instead of looping.
+assign PCNext = (EX_Branch && EX_PCSrc) ? PCTarget : (IF_PCResult + 32'd4);
 
 
 PC pc_instance(
     .clk(clk),
     .rst(rst),
-    //.PCNext(PCNext),
-    .stall(StallF), // If StallF is high, directly passing it 
-    .PCNext(PCNext),      
+    .stall(StallF),
+    .PCNext(PCNext),
     .PCResult(IF_PCResult)
 );
 
@@ -183,7 +157,7 @@ ImmGen immgen_instance(
 );
 
 ID_EX_reg id_ex_register(
-    .clk(clk), .rst(rst), 
+    .clk(clk), .rst(rst),
     .flush(FlushE),             // Hazard control
     .ID_PC(ID_PCResult),
     .ID_ReadData1(ID_ReadData1), .ID_ReadData2(ID_ReadData2),
@@ -194,7 +168,7 @@ ID_EX_reg id_ex_register(
     .ID_ALUControl(ID_ALUControl), .ID_ALUSrc(ID_ALUSrc),
     .ID_Branch(ID_Branch), .ID_MemWrite(ID_MemWrite),
     .ID_RegWrite(ID_RegWrite), .ID_ResultSrc(ID_ResultSrc),
-    
+
     // EX outputs
     .EX_PC(EX_PC), .EX_ReadData1(EX_ReadData1), .EX_ReadData2(EX_ReadData2),
     .EX_ImmExt(EX_ImmExt), .EX_WriteAddr(EX_WriteAddr), .EX_Funct3(EX_Funct3),
@@ -209,11 +183,8 @@ ID_EX_reg id_ex_register(
 
 // 3. EX (Execute Stage)
 
-//ALUSrc MUX - choosing between the second data value being from register 2 or Imm
-
-
-// 3 to 1 MUX for ALU operand A
-always_comb 
+// 3-to-1 MUX for ALU operand A
+always_comb
     begin
         case(ForwardA)
             2'b10: EX_MuxA_Out = MEM_ALUResult;         // Forward from MEM stage
@@ -223,7 +194,7 @@ always_comb
     end
 
 
-// 3 to 1 MUX for ALU Operand B before Immediate select
+// 3-to-1 MUX for ALU operand B before Immediate select
 always_comb
     begin
         case(ForwardB)
@@ -233,25 +204,25 @@ always_comb
         endcase
     end
 
-// Selecting where operand B comes from  - register fwding pipeline or imm value
-assign EX_SrcB = EX_ALUSrc?EX_ImmExt: EX_MuxB_Out;
+// Selecting where operand B comes from - forwarded register value or immediate
+assign EX_SrcB = EX_ALUSrc ? EX_ImmExt : EX_MuxB_Out;
 
 ALU alu_instance(
     .A(EX_MuxA_Out),
     .B(EX_SrcB),
-    .ALUControl(EX_ALUControl),        
+    .ALUControl(EX_ALUControl),
     .ALUResult(EX_ALUResult),
     .Zero(EX_Zero)
 );
 
-// Branching in EX stage
-always_comb 
+// Branch outcome resolved in EX stage
+always_comb
     begin
         if(EX_Branch)
             begin
                 case(EX_Funct3)
-                    3'b000: EX_PCSrc = EX_Zero; // beq
-                    3'b001: EX_PCSrc = ~EX_Zero; // bne
+                    3'b000: EX_PCSrc = EX_Zero;   // beq
+                    3'b001: EX_PCSrc = ~EX_Zero;  // bne
                     default: EX_PCSrc = 1'b0;
                 endcase
             end
@@ -271,7 +242,7 @@ EX_MEM_reg ex_mem_register (
     .EX_MemWrite(EX_MemWrite),
     .EX_RegWrite(EX_RegWrite),
     .EX_ResultSrc(EX_ResultSrc),
-    
+
     // MEM outputs
     .MEM_ALUResult(MEM_ALUResult),
     .MEM_WriteData(MEM_WriteData),
@@ -299,10 +270,10 @@ MEM_WB_reg mem_wb_register (
     .MEM_WriteAddr(MEM_WriteAddr),
     .MEM_RegWrite(MEM_RegWrite),
     .MEM_ResultSrc(MEM_ResultSrc),
-    
+
     // WB outputs
     .WB_ReadDataMem(WB_ReadDataMem),
-    .WB_ALUResult(WB_ALUResult), 
+    .WB_ALUResult(WB_ALUResult),
     .WB_WriteAddr(WB_WriteAddr),
     .WB_RegWrite(WB_RegWrite),
     .WB_ResultSrc(WB_ResultSrc)
@@ -310,11 +281,11 @@ MEM_WB_reg mem_wb_register (
 
 
 // 5. WB Stage
-assign WB_WriteData = (WB_ResultSrc == 2'b01)? WB_ReadDataMem: WB_ALUResult;
+assign WB_WriteData = (WB_ResultSrc == 2'b01) ? WB_ReadDataMem : WB_ALUResult;
 
 
 
-// Hazard Detection part
+// Hazard Detection
 HazardUnit hazard_unit_instance(
     .EX_Rs1(EX_Rs1),
     .EX_Rs2(EX_Rs2),
@@ -338,5 +309,5 @@ HazardUnit hazard_unit_instance(
 assign WB_RegWrite_dbg  = WB_RegWrite;
 assign WB_WriteAddr_dbg = WB_WriteAddr;
 assign WB_WriteData_dbg = WB_WriteData;
-    
+
 endmodule
