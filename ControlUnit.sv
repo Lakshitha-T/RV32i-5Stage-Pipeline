@@ -71,7 +71,7 @@ module ControlUnit(
                         ImmSrc    = 3'b001;
                         ALUSrc    = 1'b1;
                         MemWrite  = 1'b1;
-                        ResultSrc = 2'b00;  // FIX: was 2'bxx - X propagates into pipeline regs
+                        ResultSrc = 2'b00;  
                         Branch    = 1'b0;
                         ALUOp     = 2'b00;
                     end
@@ -82,7 +82,7 @@ module ControlUnit(
                         ImmSrc    = 3'b010;
                         ALUSrc    = 1'b0;
                         MemWrite  = 1'b0;
-                        ResultSrc = 2'b00;  // FIX: was 2'bxx - X propagates into pipeline regs
+                        ResultSrc = 2'b00;  
                         Branch    = 1'b1;
                         ALUOp     = 2'b01;
                     end
@@ -117,12 +117,12 @@ module ControlUnit(
                             3'b000:
                                 begin
                                     if((Op == 7'b0110011) && Funct7b5)
-                                        ALUControl = 4'b0110; // FIX: was 3'b110 (3-bit on 4-bit wire)
+                                        ALUControl = 4'b0110; 
                                     else
-                                        ALUControl = 4'b0010; // FIX: was 3'b010
+                                        ALUControl = 4'b0010; 
                                 end
-                            3'b110: ALUControl = 4'b0001;     // FIX: was 3'b001 - OR
-                            3'b111: ALUControl = 4'b0000;     // FIX: was 3'b000 - AND
+                            3'b110: ALUControl = 4'b0001;     
+                            3'b111: ALUControl = 4'b0000;     
                             default: ALUControl = 4'b0010;    // Fallback ADD
                         endcase
                     end
