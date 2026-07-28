@@ -96,9 +96,6 @@ module ControlUnit(
                         ResultSrc = 2'b00;
                         Branch    = 1'b0;
                         ALUOp     = 2'b00;
-                        // FIX: removed "ALUControl = 4'b0000" here - ALUControl is
-                        // driven solely by the ALU decoder below; driving it from
-                        // two always_comb blocks creates a multiple-driver conflict.
                     end
             endcase
         end
