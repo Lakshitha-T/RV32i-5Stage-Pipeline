@@ -73,8 +73,8 @@ always_ff @(posedge clk or posedge rst)
                     EX_ImmExt <= ID_ImmExt;
                     EX_WriteAddr <= ID_WriteAddr;
                     EX_Funct3 <= ID_Funct3;
-                    EX_Rs1 <= ID_Rs1;       // was 5'b0
-                    EX_Rs2 <= ID_Rs2;       // was 5'b0
+                    EX_Rs1 <= ID_Rs1;       
+                    EX_Rs2 <= ID_Rs2;       
                     EX_ALUControl <= ID_ALUControl;
                     EX_ALUSrc <= ID_ALUSrc;
                     EX_Branch <= ID_Branch;
