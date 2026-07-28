@@ -16,7 +16,12 @@ module HazardUnit(
     input logic [1:0] EX_ResultSrc,          // 1 for lw instruction
 
     //Control Hazard inputs
-    input logic EX_PCSrc,                    // 1 when the branch is taken
+    // CHANGED for speculative fetch: this used to be EX_PCSrc ("branch actually
+    // taken"), which flushed on every taken branch even when the front end had
+    // already fetched down the correct (predicted-taken) path. Now that IF
+    // redirects on prediction, we only want to flush when the prediction the
+    // fetched instructions were built on turns out to have been wrong.
+    input logic BP_mispredicted,             // 1 when EX's resolved outcome disagrees with the prediction IF used
 
     // Forwarding selection pins to ALU MUXs
     output logic [1:0] ForwardA,
@@ -74,9 +79,10 @@ assign lwStall = (EX_ResultSrc == 2'b01) && ((ID_Rs1 == EX_WriteAddr)||(ID_Rs2 =
 assign StallF = lwStall;        // Freeze fetch if waiting for load
 assign StallD = lwStall;        // Freeze decode if waiting for load
 
-// If branch is taken - flush the predicted fetched instructions
+// If the predictor's outcome turned out wrong - flush the wrongly-fetched
+// instructions (one in IF this cycle, one already in ID this cycle)
 // If lwStall occurs, bubble the EX stage
-assign FlushD = EX_PCSrc;
-assign FlushE = lwStall || EX_PCSrc;
+assign FlushD = BP_mispredicted;
+assign FlushE = lwStall || BP_mispredicted;
 
 endmodule
