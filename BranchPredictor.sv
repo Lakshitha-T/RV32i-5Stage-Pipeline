@@ -34,16 +34,12 @@ assign predicted_target = btb[fetch_idx];
 always_ff @(posedge clk or posedge rst)
     begin
         if(rst)
-            begin
-                bht[0] <= 2'b01;
-                bht[1] <= 2'b01;
-                bht[2] <= 2'b01;
-                bht[3] <= 2'b01;
-                bht[4] <= 2'b01;
-                bht[5] <= 2'b01;
-                bht[6] <= 2'b01;
-                bht[7] <= 2'b01;
-            end
+    begin
+        bht[0] <= 2'b01; bht[1] <= 2'b01; bht[2] <= 2'b01; bht[3] <= 2'b01;
+        bht[4] <= 2'b01; bht[5] <= 2'b01; bht[6] <= 2'b01; bht[7] <= 2'b01;
+        btb[0] <= 32'b0; btb[1] <= 32'b0; btb[2] <= 32'b0; btb[3] <= 32'b0;
+        btb[4] <= 32'b0; btb[5] <= 32'b0; btb[6] <= 32'b0; btb[7] <= 32'b0;
+    end
         else if (EX_Branch)
             begin
                 case(bht[update_idx])
