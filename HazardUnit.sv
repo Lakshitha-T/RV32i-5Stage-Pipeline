@@ -73,7 +73,8 @@ always_comb
 
 // 3. Load use hazard detection - stall
 logic lwStall;
-assign lwStall = (EX_ResultSrc == 2'b01) && ((ID_Rs1 == EX_WriteAddr)||(ID_Rs2 == EX_WriteAddr));
+assign lwStall = (EX_ResultSrc == 2'b01) && (EX_WriteAddr != 5'b0) &&
+                  ((ID_Rs1 == EX_WriteAddr)||(ID_Rs2 == EX_WriteAddr));
 
 // 4. Combining stall and flush controls
 assign StallF = lwStall;        // Freeze fetch if waiting for load
