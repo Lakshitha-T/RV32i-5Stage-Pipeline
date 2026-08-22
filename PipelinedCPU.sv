@@ -196,7 +196,7 @@ ID_EX_reg id_ex_register(
 always_comb
     begin
         case(ForwardA)
-            2'b10: EX_MuxA_Out = MEM_ALUResult;         // Forward from MEM stage
+            2'b10: EX_MuxA_Out = MEM_ForwardData;         // Forward from MEM stage
             2'b01: EX_MuxA_Out = WB_WriteData;          // Forward from WB stage
             default: EX_MuxA_Out = EX_ReadData1;        // Normal read from RegFile
         endcase
@@ -207,7 +207,7 @@ always_comb
 always_comb
     begin
         case(ForwardB)
-            2'b10: EX_MuxB_Out = MEM_ALUResult;
+            2'b10: EX_MuxB_Out = MEM_ForwardData;
             2'b01: EX_MuxB_Out = WB_WriteData;
             default: EX_MuxB_Out = EX_ReadData2;
         endcase
