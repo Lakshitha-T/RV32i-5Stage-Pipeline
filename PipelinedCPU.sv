@@ -66,7 +66,8 @@ logic [31:0] predicted_target;
 logic EX_predicted_taken;
 logic BP_mispredicted;
 
-
+logic [31:0] MEM_ForwardData;
+assign MEM_ForwardData = (MEM_ResultSrc == 2'b01) ? MEM_ReadDataMem : MEM_ALUResult;
 
 //1. IF (Instruction Fetch Stage)
 
