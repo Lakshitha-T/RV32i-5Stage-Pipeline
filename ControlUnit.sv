@@ -112,23 +112,30 @@ module ControlUnit(
                 2'b01: ALUControl = 4'b0110;    // Branch - SUB (for comparison)
 
                 2'b10:                          // R-type / I-type - check Funct3
-                    begin
-                        case(Funct3)
-                            3'b000:
-                                begin
-                                    if((Op == 7'b0110011) && Funct7b5)
-                                        ALUControl = 4'b0110; 
-                                    else
-                                        ALUControl = 4'b0010; 
-                                end
-                            3'b110: ALUControl = 4'b0001;     
-                            3'b111: ALUControl = 4'b0000;     
-                            default: ALUControl = 4'b0010;    // Fallback ADD
-                        endcase
-                    end
-
-                default: ALUControl = 4'b0010;
-            endcase
-        end
+    begin
+        case(Funct3)
+            3'b000:
+                begin
+                    if((Op == 7'b0110011) && Funct7b5)
+                        ALUControl = 4'b0110;   // SUB
+                    else
+                        ALUControl = 4'b0010;   // ADD / ADDI
+                end
+            3'b001: ALUControl = 4'b0011;        // SLL / SLLI
+            3'b010: ALUControl = 4'b1000;        // SLT / SLTI
+            3'b011: ALUControl = 4'b0111;        // SLTU / SLTIU
+            3'b100: ALUControl = 4'b0100;        // XOR / XORI
+            3'b101:                              // SRL/SRLI vs SRA/SRAI
+                begin
+                    if(Funct7b5)
+                        ALUControl = 4'b1001;    // SRA / SRAI
+                    else
+                        ALUControl = 4'b0101;    // SRL / SRLI
+                end
+            3'b110: ALUControl = 4'b0001;        // OR / ORI
+            3'b111: ALUControl = 4'b0000;        // AND / ANDI
+            default: ALUControl = 4'b0010;
+        endcase
+    end
 
 endmodule
