@@ -7,18 +7,16 @@ module PipelinedCPU(
     output logic [31:0] WB_WriteData_dbg
 );
 
-// Hazard unit control wires
 logic [1:0] ForwardA, ForwardB;
 logic StallF, StallD, FlushD, FlushE;
 
-// IF Stage wires
 logic [31:0] PCNext, PCTarget;
 logic [31:0] IF_PCResult, IF_Instruction;
 
-// ID Stage wires
 logic [31:0] ID_PCResult, ID_Instruction;
-logic ID_predicted_taken;           // NEW: prediction, now properly pipelined from IF
+logic ID_predicted_taken;
 logic ID_RegWrite, ID_ALUSrc, ID_MemWrite, ID_Branch;
+logic ID_Jump, ID_JALR, ID_LUI, ID_AUIPC;
 logic [2:0] ID_ImmSrc;
 logic [1:0] ID_ResultSrc;
 logic [3:0] ID_ALUControl;
@@ -29,181 +27,148 @@ logic [4:0] ID_Rs1, ID_Rs2;
 assign ID_Rs1 = ID_Instruction[19:15];
 assign ID_Rs2 = ID_Instruction[24:20];
 
-// EX stage wires
 logic [31:0] EX_PC, EX_ReadData1, EX_ReadData2, EX_ImmExt;
 logic [4:0] EX_WriteAddr;
 logic [2:0] EX_Funct3;
 logic [3:0] EX_ALUControl;
 
 logic EX_Branch;
+logic EX_Jump, EX_JALR, EX_LUI, EX_AUIPC;
 
 logic EX_ALUSrc, EX_MemWrite, EX_RegWrite;
 logic [1:0] EX_ResultSrc;
-logic [31:0] EX_SrcB, EX_ALUResult;
+logic [31:0] EX_SrcB, EX_ALUResult, EX_ALUResult_Final;
 logic EX_Zero, EX_PCSrc;
 
 logic [4:0] EX_Rs1, EX_Rs2;
-logic [31:0] EX_MuxA_Out, EX_MuxB_Out;          
+logic [31:0] EX_MuxA_Out, EX_MuxB_Out;
+logic [31:0] EX_JumpTarget;
 
-
-
-// MEM Stage wires
-logic [31:0] MEM_ALUResult, MEM_WriteData, MEM_ReadDataMem;
+logic [31:0] MEM_ALUResult, MEM_WriteData, MEM_ReadDataMem, MEM_ForwardData;
 logic [4:0] MEM_WriteAddr;
 logic MEM_MemWrite, MEM_RegWrite;
 logic [1:0] MEM_ResultSrc;
 
-
-// WB Stage wires
 logic [31:0] WB_ReadDataMem, WB_ALUResult, WB_WriteData;
 logic [4:0] WB_WriteAddr;
 logic WB_RegWrite;
 logic [1:0] WB_ResultSrc;
 
-// Branch prediction
 logic predicted_taken;
-logic [31:0] predicted_target;     
+logic [31:0] predicted_target;
 logic EX_predicted_taken;
 logic BP_mispredicted;
 
-logic [31:0] MEM_ForwardData;
-assign MEM_ForwardData = (MEM_ResultSrc == 2'b01) ? MEM_ReadDataMem : MEM_ALUResult;
 
-//1. IF (Instruction Fetch Stage)
+//1. IF
 
 BranchPredictor bp_instance(
-    .clk(clk),
-    .rst(rst),
+    .clk(clk), .rst(rst),
     .IF_PC(IF_PCResult),
     .predicted_taken(predicted_taken),
     .predicted_target(predicted_target),
     .EX_Branch(EX_Branch),
     .EX_actual_taken(EX_PCSrc),
     .EX_PC(EX_PC),
-    .EX_target(PCTarget)         
+    .EX_target(PCTarget)
 );
 
-
-assign BP_mispredicted = EX_Branch && (EX_PCSrc != EX_predicted_taken);
+assign BP_mispredicted = (EX_Branch && (EX_PCSrc != EX_predicted_taken)) || EX_Jump;
 
 always_comb
     begin
         if(BP_mispredicted)
             begin
-                PCNext = EX_PCSrc ? PCTarget : (EX_PC + 32'd4);
+                if(EX_Jump)
+                    PCNext = EX_JumpTarget;
+                else
+                    PCNext = EX_PCSrc ? PCTarget : (EX_PC + 32'd4);
             end
         else if(predicted_taken)
-            begin
-                PCNext = predicted_target;
-            end
+            PCNext = predicted_target;
         else
-            begin
-                PCNext = IF_PCResult + 32'd4;
-            end
+            PCNext = IF_PCResult + 32'd4;
     end
 
-
 PC pc_instance(
-    .clk(clk),
-    .rst(rst),
-    .stall(StallF),
-    .PCNext(PCNext),
-    .PCResult(IF_PCResult)
+    .clk(clk), .rst(rst), .stall(StallF),
+    .PCNext(PCNext), .PCResult(IF_PCResult)
 );
 
 InstructionMemory imem_instance(
-    .A(IF_PCResult),
-    .RD(IF_Instruction)
+    .A(IF_PCResult), .RD(IF_Instruction)
 );
 
-
-// IF_ID Pipeline register
 IF_ID_reg if_id_register(
-    .clk(clk),
-    .rst(rst),
-    .stall(StallD),
-    .flush(FlushD),
-    .IF_PC(IF_PCResult),
-    .IF_Instruction(IF_Instruction),
-    .IF_predicted_taken(predicted_taken),   
-    .ID_PC(ID_PCResult),
-    .ID_Instruction(ID_Instruction),
-    .ID_predicted_taken(ID_predicted_taken) 
+    .clk(clk), .rst(rst), .stall(StallD), .flush(FlushD),
+    .IF_PC(IF_PCResult), .IF_Instruction(IF_Instruction),
+    .IF_predicted_taken(predicted_taken),
+    .ID_PC(ID_PCResult), .ID_Instruction(ID_Instruction),
+    .ID_predicted_taken(ID_predicted_taken)
 );
 
 
-//2. ID (Instruction Decode and Control stage)
+//2. ID
 
 ControlUnit control_instance(
     .Op(ID_Instruction[6:0]),
     .Funct3(ID_Instruction[14:12]),
     .Funct7b5(ID_Instruction[30]),
-    .RegWrite(ID_RegWrite),
-    .ImmSrc(ID_ImmSrc),
-    .ALUSrc(ID_ALUSrc),
-    .MemWrite(ID_MemWrite),
-    .ResultSrc(ID_ResultSrc),
-    .Branch(ID_Branch),
+    .RegWrite(ID_RegWrite), .ImmSrc(ID_ImmSrc), .ALUSrc(ID_ALUSrc),
+    .MemWrite(ID_MemWrite), .ResultSrc(ID_ResultSrc), .Branch(ID_Branch),
+    .Jump(ID_Jump), .JALR(ID_JALR), .LUI(ID_LUI), .AUIPC(ID_AUIPC),
     .ALUControl(ID_ALUControl)
 );
 
 RegisterFile regFile_instance(
-    .clk(clk),
-    .rst(rst),
-    .RegWrite(WB_RegWrite),
-    .ReadAddr1(ID_Instruction[19:15]),
-    .ReadAddr2(ID_Instruction[24:20]),
-    .WriteAddr(WB_WriteAddr),
-    .WriteData(WB_WriteData),
-    .ReadData1(ID_ReadData1),
-    .ReadData2(ID_ReadData2)
+    .clk(clk), .rst(rst), .RegWrite(WB_RegWrite),
+    .ReadAddr1(ID_Instruction[19:15]), .ReadAddr2(ID_Instruction[24:20]),
+    .WriteAddr(WB_WriteAddr), .WriteData(WB_WriteData),
+    .ReadData1(ID_ReadData1), .ReadData2(ID_ReadData2)
 );
 
 ImmGen immgen_instance(
-    .instr(ID_Instruction),
-    .ImmSrc(ID_ImmSrc),
-    .imm_ext(ID_ImmExt)
+    .instr(ID_Instruction), .ImmSrc(ID_ImmSrc), .imm_ext(ID_ImmExt)
 );
 
 ID_EX_reg id_ex_register(
-    .clk(clk), .rst(rst),
-    .flush(FlushE),             // Hazard control
+    .clk(clk), .rst(rst), .flush(FlushE),
     .ID_PC(ID_PCResult),
     .ID_ReadData1(ID_ReadData1), .ID_ReadData2(ID_ReadData2),
     .ID_ImmExt(ID_ImmExt),
     .ID_WriteAddr(ID_Instruction[11:7]),
     .ID_Funct3(ID_Instruction[14:12]),
-    .ID_Rs1(ID_Rs1), .ID_Rs2(ID_Rs2),       // Hazard control
+    .ID_Rs1(ID_Rs1), .ID_Rs2(ID_Rs2),
     .ID_ALUControl(ID_ALUControl), .ID_ALUSrc(ID_ALUSrc),
-    .ID_Branch(ID_Branch), .ID_MemWrite(ID_MemWrite),
+    .ID_Branch(ID_Branch),
+    .ID_Jump(ID_Jump), .ID_JALR(ID_JALR), .ID_LUI(ID_LUI), .ID_AUIPC(ID_AUIPC),
+    .ID_MemWrite(ID_MemWrite),
     .ID_RegWrite(ID_RegWrite), .ID_ResultSrc(ID_ResultSrc),
 
-    // EX outputs
     .EX_PC(EX_PC), .EX_ReadData1(EX_ReadData1), .EX_ReadData2(EX_ReadData2),
     .EX_ImmExt(EX_ImmExt), .EX_WriteAddr(EX_WriteAddr), .EX_Funct3(EX_Funct3),
     .EX_ALUControl(EX_ALUControl), .EX_ALUSrc(EX_ALUSrc),
-    .EX_Rs1(EX_Rs1), .EX_Rs2(EX_Rs2),       // Hazard control
-    .EX_Branch(EX_Branch), .EX_MemWrite(EX_MemWrite),
+    .EX_Rs1(EX_Rs1), .EX_Rs2(EX_Rs2),
+    .EX_Branch(EX_Branch),
+    .EX_Jump(EX_Jump), .EX_JALR(EX_JALR), .EX_LUI(EX_LUI), .EX_AUIPC(EX_AUIPC),
+    .EX_MemWrite(EX_MemWrite),
     .EX_RegWrite(EX_RegWrite), .EX_ResultSrc(EX_ResultSrc),
 
-    .ID_predicted_taken(ID_predicted_taken), 
+    .ID_predicted_taken(ID_predicted_taken),
     .EX_predicted_taken(EX_predicted_taken)
 );
 
-// 3. EX (Execute Stage)
+// 3. EX
 
-// 3-to-1 MUX for ALU operand A
 always_comb
     begin
         case(ForwardA)
-            2'b10: EX_MuxA_Out = MEM_ForwardData;         // Forward from MEM stage
-            2'b01: EX_MuxA_Out = WB_WriteData;          // Forward from WB stage
-            default: EX_MuxA_Out = EX_ReadData1;        // Normal read from RegFile
+            2'b10: EX_MuxA_Out = MEM_ForwardData;
+            2'b01: EX_MuxA_Out = WB_WriteData;
+            default: EX_MuxA_Out = EX_ReadData1;
         endcase
     end
 
-
-// 3-to-1 MUX for ALU operand B before Immediate select
 always_comb
     begin
         case(ForwardB)
@@ -213,46 +178,49 @@ always_comb
         endcase
     end
 
-// Selecting where operand B comes from - forwarded register value or immediate
 assign EX_SrcB = EX_ALUSrc ? EX_ImmExt : EX_MuxB_Out;
 
 ALU alu_instance(
-    .A(EX_MuxA_Out),
-    .B(EX_SrcB),
+    .A(EX_MuxA_Out), .B(EX_SrcB),
     .ALUControl(EX_ALUControl),
-    .ALUResult(EX_ALUResult),
-    .Zero(EX_Zero)
+    .ALUResult(EX_ALUResult), .Zero(EX_Zero)
 );
 
-// Branch outcome resolved in EX stage
 always_comb
     begin
         if(EX_Branch)
             begin
                 case(EX_Funct3)
-                    3'b000: EX_PCSrc = EX_Zero;   // beq
-                    3'b001: EX_PCSrc = ~EX_Zero;  // bne
+                    3'b000: EX_PCSrc = EX_Zero;
+                    3'b001: EX_PCSrc = ~EX_Zero;
+                    3'b100: EX_PCSrc = EX_ALUResult[0];   // blt
+                    3'b101: EX_PCSrc = ~EX_ALUResult[0];  // bge
+                    3'b110: EX_PCSrc = EX_ALUResult[0];   // bltu
+                    3'b111: EX_PCSrc = ~EX_ALUResult[0];  // bgeu
                     default: EX_PCSrc = 1'b0;
                 endcase
             end
         else
-            begin
-                EX_PCSrc = 1'b0;
-            end
+            EX_PCSrc = 1'b0;
     end
 
 assign PCTarget = EX_PC + EX_ImmExt;
+assign EX_JumpTarget = EX_JALR ? (EX_ALUResult & ~32'h1) : PCTarget;
+
+assign EX_ALUResult_Final = EX_LUI    ? EX_ImmExt      :
+                             EX_AUIPC ? PCTarget        :
+                             EX_Jump  ? (EX_PC + 32'd4) :
+                                        EX_ALUResult;
 
 EX_MEM_reg ex_mem_register (
     .clk(clk), .rst(rst),
-    .EX_ALUResult(EX_ALUResult),
+    .EX_ALUResult(EX_ALUResult_Final),
     .EX_WriteData(EX_MuxB_Out),
     .EX_WriteAddr(EX_WriteAddr),
     .EX_MemWrite(EX_MemWrite),
     .EX_RegWrite(EX_RegWrite),
     .EX_ResultSrc(EX_ResultSrc),
 
-    // MEM outputs
     .MEM_ALUResult(MEM_ALUResult),
     .MEM_WriteData(MEM_WriteData),
     .MEM_WriteAddr(MEM_WriteAddr),
@@ -262,15 +230,14 @@ EX_MEM_reg ex_mem_register (
 );
 
 
-// 4. MEM stage
+// 4. MEM
 
 DataMemory dmem_instance(
-    .clk(clk),
-    .MemWrite(MEM_MemWrite),
-    .A(MEM_ALUResult),
-    .WD(MEM_WriteData),
-    .RD(MEM_ReadDataMem)
+    .clk(clk), .MemWrite(MEM_MemWrite),
+    .A(MEM_ALUResult), .WD(MEM_WriteData), .RD(MEM_ReadDataMem)
 );
+
+assign MEM_ForwardData = (MEM_ResultSrc == 2'b01) ? MEM_ReadDataMem : MEM_ALUResult;
 
 MEM_WB_reg mem_wb_register (
     .clk(clk), .rst(rst),
@@ -280,7 +247,6 @@ MEM_WB_reg mem_wb_register (
     .MEM_RegWrite(MEM_RegWrite),
     .MEM_ResultSrc(MEM_ResultSrc),
 
-    // WB outputs
     .WB_ReadDataMem(WB_ReadDataMem),
     .WB_ALUResult(WB_ALUResult),
     .WB_WriteAddr(WB_WriteAddr),
@@ -289,30 +255,20 @@ MEM_WB_reg mem_wb_register (
 );
 
 
-// 5. WB Stage
+// 5. WB
 assign WB_WriteData = (WB_ResultSrc == 2'b01) ? WB_ReadDataMem : WB_ALUResult;
 
 
-
-// Hazard Detection
 HazardUnit hazard_unit_instance(
-    .EX_Rs1(EX_Rs1),
-    .EX_Rs2(EX_Rs2),
-    .MEM_WriteAddr(MEM_WriteAddr),
-    .MEM_RegWrite(MEM_RegWrite),
-    .WB_WriteAddr(WB_WriteAddr),
-    .WB_RegWrite(WB_RegWrite),
-    .ID_Rs1(ID_Rs1),
-    .ID_Rs2(ID_Rs2),
-    .EX_WriteAddr(EX_WriteAddr),
-    .EX_ResultSrc(EX_ResultSrc),
+    .EX_Rs1(EX_Rs1), .EX_Rs2(EX_Rs2),
+    .MEM_WriteAddr(MEM_WriteAddr), .MEM_RegWrite(MEM_RegWrite),
+    .WB_WriteAddr(WB_WriteAddr), .WB_RegWrite(WB_RegWrite),
+    .ID_Rs1(ID_Rs1), .ID_Rs2(ID_Rs2),
+    .EX_WriteAddr(EX_WriteAddr), .EX_ResultSrc(EX_ResultSrc),
     .BP_mispredicted(BP_mispredicted),
-    .ForwardA(ForwardA),
-    .ForwardB(ForwardB),
-    .StallF(StallF),
-    .StallD(StallD),
-    .FlushD(FlushD),
-    .FlushE(FlushE)
+    .ForwardA(ForwardA), .ForwardB(ForwardB),
+    .StallF(StallF), .StallD(StallD),
+    .FlushD(FlushD), .FlushE(FlushE)
 );
 
 assign WB_RegWrite_dbg  = WB_RegWrite;
