@@ -19,8 +19,12 @@ module RegisterFile(
 
 
     // Asynchronous Read (Combinational) - Can read at any time
-    assign ReadData1 = (ReadAddr1 == 5'b0)? 32'b0: registers[ReadAddr1];
-    assign ReadData2 = (ReadAddr2 == 5'b0)? 32'b0: registers[ReadAddr2];
+    assign ReadData1 = (ReadAddr1 == 5'b0) ? 32'b0 :
+                    (RegWrite && (WriteAddr == ReadAddr1)) ? WriteData :
+                    registers[ReadAddr1];
+    assign ReadData2 = (ReadAddr2 == 5'b0) ? 32'b0 :
+        (RegWrite && (WriteAddr == ReadAddr2)) ? WriteData :
+        registers[ReadAddr2];
 
     // Synchronous Write (Sequential) - Writes only at the rising clock edge
     always_ff @(posedge clk)
